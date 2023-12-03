@@ -25,6 +25,7 @@ void runProblem1(std::string inputPath)
     std::vector<unsigned char> tokens;
     tokens.reserve(10000);
     std::vector<short> endline_idx;
+    int max_line_size = 0;
     if (input_file.is_open())
     {
         std::cout << "Input data:" << std::endl;
@@ -33,12 +34,19 @@ void runProblem1(std::string inputPath)
         {
             std::string line;
             input_file >> line;
+            if (line == "")
+            {
+                continue;
+            }
+
+            max_line_size = std::max(max_line_size, (int)line.length());
 
             for (auto& c : line)
             {
                 tokens.push_back((unsigned char)c);
             }
             endline_idx.push_back((short)(tokens.size() - 1));
+            //std::cout << tokens.size() - 1 << std::endl;
         }
     }
 
@@ -54,10 +62,8 @@ void runProblem1(std::string inputPath)
     checkCUDAError(cudaMemcpy(cuIndices, endline_idx.data(), endline_idx.size() * sizeof(short1), cudaMemcpyHostToDevice));
 
     // Run problem on device
-    // TODO optimization: right now, the data is setup such that each thread will handle 1 line
-    // this means each thread will do ~line length gmem accesses
     // Within a warp, the work is not evenly distributed: some lines are longer than others. We should try to normalize line lengths somehow...
-    advc_problem1((uchar*)cuTokens, (short*)cuIndices, (uint32_t*)cuSum, tokens.size(), endline_idx.size());
+    advc_problem1((uchar*)cuTokens, (short*)cuIndices, (uint32_t*)cuSum, tokens.size(), endline_idx.size(), max_line_size);
 
     // Copy over data from device to host
     uint32_t sum = 0;
