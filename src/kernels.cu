@@ -312,3 +312,52 @@ void advc_problem_1_2(uchar* tokens, short* endlines, uint32_t* sum, int totalNu
     checkCUDAError(cudaThreadSynchronize());
 }
 
+__constant__ uchar3 c_bag_limits{ 12, 13, 14 };
+
+__global__ void cuda_advc_problem_2(uchar4* combos, uint32_t* result, int num_combos, int num_games)
+{
+    if (threadIdx.x > num_combos)
+    {
+        return;
+    }
+
+    extern __shared__ short possible_games[];
+
+    for (int i = threadIdx.x; i < num_games; i += blockDim.x)
+        possible_games[i] = 1;
+    __syncthreads();
+
+    uchar4 game_data = combos[threadIdx.x];
+    if (game_data.x > c_bag_limits.x ||
+        game_data.y > c_bag_limits.y ||
+        game_data.z > c_bag_limits.z)
+    {
+        possible_games[game_data.w] = 0;
+    }
+    __syncthreads();
+
+    if (threadIdx.x >= num_games)
+    {
+        return;
+    }
+
+    if (possible_games[threadIdx.x])
+    {
+        atomicAdd(&result[0], threadIdx.x + 1);
+    }
+}
+
+void advc_problem_2(uchar4* combos, uint32_t* result, int num_combos, int num_games)
+{
+    assert(num_combos <= 1024);
+    dim3 blockDims(num_combos); // Each thread will handle 1 game
+
+    dim3 gridDims(1);
+
+    cuda_advc_problem_2 << <gridDims, blockDims, sizeof(short) * num_games >> > (combos, result, num_combos, num_games);
+    checkCUDAError("Kernel failed!");
+
+    // Device WFI
+    checkCUDAError(cudaThreadSynchronize());
+}
+

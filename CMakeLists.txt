@@ -12,4 +12,6 @@ set(ARGPARSE_INCLUDE_DIR "${EXTERNAL}/argparse")
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(CMAKE_CUDA_ARCHITECTURES 70)
+
 add_subdirectory(src)

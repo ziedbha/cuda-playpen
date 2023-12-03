@@ -14,6 +14,105 @@
 
 #include "main.hpp"
 
+void runProblem_2(std::string inputPath)
+{
+    // Input data will be a bunch of uchar4s packed as such: r = red, g = green, b = blue, a = game ID
+    std::ifstream input_file(inputPath);
+    std::vector<uchar4> combos;
+    combos.reserve(10000);
+    int num_games = 0;
+
+    if (input_file.is_open())
+    {
+        size_t current_size = 0;
+        std::string line;
+        while (std::getline(input_file, line))
+        {
+            if (line == "")
+            {
+                continue;
+            }
+
+            uchar4 game_vals{}; // r g b game_id
+
+            // "Game x"
+            std::string delimiter = ":";
+            size_t pos = line.find(delimiter);
+            std::string game_pretext = line.substr(0, pos);
+            std::cout << game_pretext << std::endl;
+
+            // Within "Game x" --> x
+            auto pos_game_idx = game_pretext.find(" ");
+            game_vals.w = std::atoi(game_pretext.substr(pos_game_idx + 1, game_pretext.size() - pos_game_idx).c_str()) - 1;
+            
+            // Everything after "Game x:"
+            line.erase(0, pos + delimiter.length());
+            delimiter = ";";
+            num_games++;
+
+            while (pos != std::string::npos)
+            {
+                pos = line.find(delimiter);
+                std::string game_instance = line.substr(0, pos);
+                std::cout << game_instance << std::endl;
+                line.erase(0, pos + delimiter.length());
+
+                std::string delim_within_instance = ",";
+                size_t posi = 0; 
+                while (posi != std::string::npos)
+                {
+                    posi = game_instance.find(delim_within_instance);
+                    std::string game_instance_value = game_instance.substr(0, posi);
+                    std::cout << game_instance_value << std::endl;
+                    game_instance.erase(0, posi + delimiter.length());
+
+                    size_t pos_color = 0;
+                    pos_color = game_instance_value.find(" ");
+                    game_instance_value.erase(0, pos_color + 1);
+                    pos_color = game_instance_value.find(" ");
+                    auto num = game_instance_value.substr(0, pos_color);
+                    auto color = game_instance_value.substr(pos_color + 1, game_instance_value.size());
+
+                    if (color == "red")
+                    {
+                        game_vals.x = std::atoi(num.c_str());
+                    }
+                    else if (color == "green")
+                    {
+                        game_vals.y = std::atoi(num.c_str());
+                    }
+                    else
+                    {
+                        game_vals.z = std::atoi(num.c_str());
+                    }
+                }
+
+                std::cout << (int)game_vals.x << ", " << (int)game_vals.y << ", " << (int)game_vals.z << ", " << (int)game_vals.w << std::endl;
+                combos.push_back(game_vals);
+            }
+        }
+    }
+
+    // Allocate data on device and copy it over
+    void* cuCombos = nullptr;
+    void* cuResult = nullptr;
+    checkCUDAError(cudaMalloc(&cuCombos, sizeof(uchar4) * combos.size())); // in
+    checkCUDAError(cudaMalloc(&cuResult, sizeof(uint32_t)));               // out, single num
+
+    checkCUDAError(cudaMemcpy(cuCombos, combos.data(), combos.size() * sizeof(uchar4), cudaMemcpyHostToDevice));
+
+    // Run problem on device
+    advc_problem_2((uchar4*)cuCombos, (uint32_t*)cuResult, combos.size(), num_games);
+
+    // Copy over data from device to host
+    uint32_t result = 0;
+    checkCUDAError(cudaMemcpy(&result, cuResult, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+
+    // Assert results
+    std::cout << "Valid game id total = " << result << ", correct result = " << 2237 << std::endl;
+    assert(result == 2237);
+}
+
 void runProblem_1(std::string inputPath, bool part_one = true)
 {
     // Read problem data as:
@@ -129,13 +228,18 @@ int main(int argc, char* argv[])
     }
     else
     {
-        if (program.get<float>("--problem") == 1.1f)
+        auto pb = program.get<float>("--problem");
+        if (pb == 1.1f)
         {
             runProblem_1(in_path);
         }
-        else if (program.get<float>("--problem") == 1.2f)
+        else if (pb == 1.2f)
         {
             runProblem_1(in_path, false);
+        }
+        else if (pb == 2.0f)
+        {
+            runProblem_2(in_path);
         }
     }
 
