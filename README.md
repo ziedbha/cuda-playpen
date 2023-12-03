@@ -10,7 +10,7 @@ I'll be solving Adv of Code problems using CUDA. The following problems are solv
 
 #### Requirements
 You can probably make this work on older stuff, but here's what I used:
-* You can find the latest CUDA SDK (here)[https://developer.nvidia.com/cuda-downloads]
+* You can find the latest CUDA SDK [here](https://developer.nvidia.com/cuda-downloads)
 * Visual Studio 19
 
 #### Building
