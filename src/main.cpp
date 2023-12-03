@@ -14,7 +14,7 @@
 
 #include "main.hpp"
 
-void runProblem1(std::string inputPath)
+void runProblem_1(std::string inputPath, bool part_one = true)
 {
     // Read problem data as:
     // tokens:      ascii counterpart of every character, excluding newlines
@@ -28,7 +28,6 @@ void runProblem1(std::string inputPath)
     int max_line_size = 0;
     if (input_file.is_open())
     {
-        std::cout << "Input data:" << std::endl;
         size_t current_size = 0;
         while (input_file.good())
         {
@@ -46,7 +45,6 @@ void runProblem1(std::string inputPath)
                 tokens.push_back((unsigned char)c);
             }
             endline_idx.push_back((short)(tokens.size() - 1));
-            //std::cout << tokens.size() - 1 << std::endl;
         }
     }
 
@@ -62,14 +60,30 @@ void runProblem1(std::string inputPath)
     checkCUDAError(cudaMemcpy(cuIndices, endline_idx.data(), endline_idx.size() * sizeof(short1), cudaMemcpyHostToDevice));
 
     // Run problem on device
-    // Within a warp, the work is not evenly distributed: some lines are longer than others. We should try to normalize line lengths somehow...
-    advc_problem1((uchar*)cuTokens, (short*)cuIndices, (uint32_t*)cuSum, tokens.size(), endline_idx.size(), max_line_size);
+    if (part_one)
+    {
+        advc_problem_1_1((uchar*)cuTokens, (short*)cuIndices, (uint32_t*)cuSum, tokens.size(), endline_idx.size(), max_line_size);
+    }
+    else
+    {
+        advc_problem_1_2((uchar*)cuTokens, (short*)cuIndices, (uint32_t*)cuSum, tokens.size(), endline_idx.size(), max_line_size);
+    }
 
     // Copy over data from device to host
     uint32_t sum = 0;
     checkCUDAError(cudaMemcpy(&sum, cuSum, sizeof(uint32_t), cudaMemcpyDeviceToHost));
-    std::cout << "Sum = " << sum << ", correct sum = " << 55108 << std::endl;
-    assert(sum == 55108);
+
+    // Assert results
+    if (part_one)
+    {
+        std::cout << "Sum = " << sum << ", correct sum = " << 55108 << std::endl;
+        assert(sum == 55108);
+    }
+    else
+    {
+        std::cout << "Sum = " << sum << ", correct sum = " << 56324 << std::endl;
+        assert(sum == 56324);
+    }
 }
 
 int main(int argc, char* argv[])
@@ -80,7 +94,7 @@ int main(int argc, char* argv[])
         .help("Runs a given Advent Of Code 2023 problem")
         .required()
         .default_value(1)
-        .scan<'i', int>();
+        .scan<'f', float>();
 
     program.add_argument("--path")
         .help("Path to a given Advent Of Code 2023 problem")
@@ -115,9 +129,13 @@ int main(int argc, char* argv[])
     }
     else
     {
-        if (program.get<int>("--problem") == 1)
+        if (program.get<float>("--problem") == 1.1f)
         {
-            runProblem1(in_path);
+            runProblem_1(in_path);
+        }
+        else if (program.get<float>("--problem") == 1.2f)
+        {
+            runProblem_1(in_path, false);
         }
     }
 

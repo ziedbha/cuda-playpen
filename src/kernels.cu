@@ -28,7 +28,7 @@ void checkCUDAError(const char* msg)
     }
 }
 
-__global__ void cuda_advc_problem1(uchar* tokens, short* endlines, uint32_t* sum, int totalNumTokens, int totalNumLines)
+__global__ void cuda_advc_problem_1_1(uchar* tokens, short* endlines, uint32_t* sum, int totalNumTokens, int totalNumLines)
 {
     int lineIdx = threadIdx.y + blockDim.y * blockIdx.x;
 
@@ -137,7 +137,7 @@ __global__ void cuda_advc_problem1(uchar* tokens, short* endlines, uint32_t* sum
     }
 }
 
-void advc_problem1(uchar* tokens, short* endlines, uint32_t* sum, int totalNumTokens, int totalNumLines, int max_line_size)
+void advc_problem_1_1(uchar* tokens, short* endlines, uint32_t* sum, int totalNumTokens, int totalNumLines, int max_line_size)
 {
     assert(64 > max_line_size);
     dim3 blockDims(64, 16); // Each row of threads will handle 1 line
@@ -145,10 +145,167 @@ void advc_problem1(uchar* tokens, short* endlines, uint32_t* sum, int totalNumTo
     unsigned int numBlocks = (totalNumLines + blockDims.y - 1) / blockDims.y;
     dim3 gridDims(numBlocks);
 
-    //int shmemSize = blockSize * sizeof(short);
-    //checkCUDAError(cudaFuncSetAttribute(cuda_advc_problem1, cudaFuncAttributeMaxDynamicSharedMemorySize, shmemSize));
+    cuda_advc_problem_1_1<<<gridDims, blockDims>>>(tokens, endlines, sum, totalNumTokens, totalNumLines);
+    checkCUDAError("Kernel failed!");
 
-    cuda_advc_problem1<<<gridDims, blockDims>>>(tokens, endlines, sum, totalNumTokens, totalNumLines);
+    // Device WFI
+    checkCUDAError(cudaThreadSynchronize());
+}
+
+__constant__ char c_alpha_nums[9][10] = { "one\0", "two\0", "three\0", "four\0", "five\0", "six\0", "seven\0", "eight\0", "nine\0" };
+
+__global__ void cuda_advc_problem_1_2(uchar* tokens, short* endlines, uint32_t* sum, int totalNumTokens, int totalNumLines)
+{
+    int lineIdx = threadIdx.y + blockDim.y * blockIdx.x;
+
+    __shared__ short digits[64][16]; // digits per line
+    __shared__ short2 beginEnd[16]; // bounds of each line held by a block
+    __shared__ short numbers[16]; // final numbers, per line, held by a block
+
+    if (lineIdx >= totalNumLines)
+    {
+        return;
+    }
+
+    // Load bounds of a line into shmem
+    if (threadIdx.x == 0) // first thread of every column will load the line data
+    {
+        beginEnd[threadIdx.y].y = endlines[lineIdx];
+        if (lineIdx > 0)
+        {
+            beginEnd[threadIdx.y].x = endlines[lineIdx - 1] + 1;
+        }
+        else
+        {
+            beginEnd[threadIdx.y].x = 0;
+        }
+    }
+    __syncthreads();
+
+    // Load all chars into shmem
+    short2 localLineIdx = beginEnd[threadIdx.y];
+    if (localLineIdx.x + threadIdx.x <= localLineIdx.y)
+    digits[threadIdx.x][threadIdx.y] = tokens[localLineIdx.x + threadIdx.x];
+    __syncthreads();
+
+    // All threads in a column drop out except the first
+    // TODO Optimization: maybe we can keep a few more around to do the character search?
+    if (threadIdx.x != 0)
+    {
+        return;
+    }
+
+    // Loop over chars, and find out if words are converted into numbers
+    short maxIdx = -1;
+    short minIdx = 100;
+    short maxVal = 0;
+    short minVal = 0;
+    short numChars = localLineIdx.y - localLineIdx.x;
+#pragma unroll
+    for (int i = 0; i <= numChars; i++)
+    {
+        short val = digits[i][threadIdx.y];
+        bool valid = false;
+
+        if (val >= 48 && val <= 57) // number
+        {
+            valid = true;
+        }
+        else // lowercase alpha
+        {
+            for (int j = 0; j < 9; j++) // iterate over all alpha nums to try to find a match
+            {
+                char* alphanum = c_alpha_nums[j];
+                int k = 0;
+                int ii = i;
+                bool matched = true;
+                while (alphanum[k] != '\0')
+                {
+                    if (alphanum[k] == digits[ii][threadIdx.y])
+                    {
+                        k++;
+                        ii++;
+                    }
+                    else
+                    {
+                        matched = false;
+                        break;
+                    }
+                }
+
+                if (matched)
+                {
+                    val = j + 1 + 48;
+                    valid = true;
+                    i = ii - 2; // move forward the base for loop, but not too much because some alpha nums share characters (e.g. eight and two --> eightwo)
+                    break;
+                }
+            }
+        }
+
+        if (valid)
+        {
+            val = val - 48;
+            if (maxIdx < i)
+            {
+                maxIdx = i;
+                maxVal = val;
+            }
+
+            if (minIdx > i)
+            {
+                minIdx = i;
+                minVal = val;
+            }
+
+            if (blockIdx.x == 14 && threadIdx.y == 8) // debug only
+            {
+                printf("minval %d, maxval %d\n",  minVal, maxVal);
+            }
+        }
+    }
+
+    // just for debug: first block, first line
+    if (blockIdx.x == 14 && threadIdx.y == 8)
+    {
+        printf("begin %d, end %d, range %d\n", beginEnd[threadIdx.y].x, beginEnd[threadIdx.y].y, beginEnd[threadIdx.y].y - beginEnd[threadIdx.y].x + 1);
+        for (int i = 0; i < 64; i++) // print this entire line
+        {
+            printf("val % d\n", digits[i][threadIdx.y]);
+        }
+
+        printf("total %d\n", 10 * minVal + maxVal);
+    }
+
+    // Store the number of every line in shmem
+    numbers[threadIdx.y] = 10 * minVal + maxVal;
+    __syncthreads();
+
+    // Only first thread per block is needed t odo the reduction
+    if (threadIdx.y == 0)
+    {
+        // loop over shmem to get the total over this entire block
+        uint32_t total = 0;
+#pragma unroll
+        for (int i = 0; i < blockDim.y; i++)
+        {
+            total += numbers[i];
+        }
+
+        // atomically add the accumulated total
+        atomicAdd(&sum[0], total);
+    }
+}
+
+void advc_problem_1_2(uchar* tokens, short* endlines, uint32_t* sum, int totalNumTokens, int totalNumLines, int max_line_size)
+{
+    assert(64 > max_line_size);
+    dim3 blockDims(64, 16); // Each row of threads will handle 1 line
+
+    unsigned int numBlocks = (totalNumLines + blockDims.y - 1) / blockDims.y;
+    dim3 gridDims(numBlocks);
+
+    cuda_advc_problem_1_2 << <gridDims, blockDims >> > (tokens, endlines, sum, totalNumTokens, totalNumLines);
     checkCUDAError("Kernel failed!");
 
     // Device WFI
