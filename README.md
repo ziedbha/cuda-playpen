@@ -2,9 +2,7 @@
 I'm using this repo to upload various fun experiments with CUDA.
 
 ## Advent of Code 2023
-I'll be solving Adv of Code problems using CUDA. The following problems are solved:
-* **Problem 1**: every CUDA thread handles an input line. Sums are done per block using shared memory, then are atomically added to global memory.
-
+I'll be solving Adv of Code problems using CUDA.
 
 ### Building (on Windows)
 
